@@ -175,20 +175,36 @@ models/generate/     qwen3-8b-q4_k_m.gguf
 
 ## 目录结构
 
-```
-app/            后端服务（api / core / parse / index / retrieve / reason / ledger / ingest / eval）
-config/         运行配置（如索引参数 index-v1.yaml）
-db/             SQLite 建表、触发器与视图
-prompts/        CoT 判定提示词
-eval/           评测集（dev / golden）与污染检查清单
-frontend/       静态操作台
-scripts/        部署与运维脚本（PowerShell / Python）
-src/            一次性数据分析脚本
-tests/          单元与集成测试
-v1-spec/        v1 规格包：PRD、契约、接口、验收标准与机检脚本
-docs/           运维手册、标注规范与各类评估报告
-reports/        阶段性审查与验收报告
-```
+| 路径 | 功能 |
+|---|---|
+| `app/` | 后端服务本体。`main.py` 装配应用，`config.py` 读环境变量，`errors.py` 定义统一错误码 |
+| `app/api/` | HTTP 接口层：`documents.py` 上传受理，`reviews.py` 审查与推理链，`retrieval.py` 条款检索与调试 |
+| `app/core/` | 配置校验、日志、SQLite 连接与事务、显存池调度（embed / rerank / generate 互斥） |
+| `app/parse/` | PDF 解析：文本层优先，缺文本层时走可选云 OCR，输出页级文本与坐标 |
+| `app/index/` | 条款结构切分、元数据校验、向量写入与索引状态机 |
+| `app/retrieve/` | 条款定位、混合召回、重排，以及基于角色的检索范围（ACL） |
+| `app/reason/` | 判定编排：证据组织、CoT 调用、结论与引用回链组装、`draft` 降级 |
+| `app/ingest/` | 异步入库写队列，串行处理上传后的解析、切分与建索引 |
+| `app/eval/` | 评测钩子，供评测集复跑时计算召回与引用命中 |
+| `config/` | 运行配置，如 `index-v1.yaml` 的索引与切分参数 |
+| `db/` | SQLite 三件套：`schema.sql` 建表、`triggers.sql` 状态机约束、`views.sql` 查询视图 |
+| `prompts/` | CoT 判定提示词模板，与 `app/reason/` 配套 |
+| `eval/` | `dev/` 开发集与 `golden/` 金标集（`*.jsonl`），以及污染检查清单 |
+| `frontend/` | 原生静态操作台：`index.html` + `js/api.js` 请求封装 + `js/pages/` 三个页面 |
+| `scripts/` | 部署与运维脚本：起停（`dev_up.ps1`）、抓包、显存探测、llama.cpp 安装、索引重建、自评测 |
+| `src/` | 一次性数据分析脚本（论文抽取、PDF 探针），不参与服务运行 |
+| `tests/` | 单元与集成测试；标 `gpu` 的用例需真实加载模型 |
+| `v1-spec/` | v1 规格包：`spec/` 四件套、`changes/` 变更单、`tools/` 机检脚本、`trae-instructions/` 实施清单 |
+| `docs/` | 运维手册、标注规范、条款树、解析与切分报告、显存基线 |
+| `reports/` | 阶段性抓包、审查走查与验收报告 |
+| `.trae/rules/` | 项目协作规则，约束 AI 工具在本仓库内的行为 |
+| `.publish-safety/` | 发布白名单，声明哪些路径允许推到公开仓库 |
+| `pyproject.toml` | 依赖与服务元信息，`pip install -e ".[dev]"` 的入口 |
+| `docker-compose.yml` | etcd / SeaweedFS / Milvus / Redis 的底座编排 |
+| `.env.example` | 环境变量模板，只含键名与默认值，不含凭据 |
+| `README.md` | 本文件：调用步骤、硬约束与已知限制 |
+| `.gitignore` | 排除 `models/`、`var/`、`work/` 等本地产物 |
+| `.gitattributes` | 统一换行符为 LF，避免跨平台差异 |
 
 `models/`、`var/`、`standard_paper/`、`work/` 是本地产物目录，不入库，需自行创建。
 
