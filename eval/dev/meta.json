@@ -1,0 +1,9 @@
+{
+  "set_id": "selfgen-dev-v1",
+  "version": "1",
+  "item_count": 45,
+  "frozen_at": "2026-11-10T02:32:54Z",
+  "generator": "scripts/gen_selfeval.py",
+  "generator_hash": "sha256:39c7adf563668eca6fb08825e832f97afde7e8d8b76876dae0646cf4e6f76fa2",
+  "caliber": "self_generated"
+}

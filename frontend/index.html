@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>GIPS 标准查询与自查工具 · 前端操作台</title>
+  <link rel="icon" href="data:," />
+  <!-- 首屏渲染前先落主题，避免深色默认闪白 -->
+  <script>
+    (function () {
+      try {
+        var saved = localStorage.getItem("gips_ui_theme");                 // 读取上次选择的主题
+        document.documentElement.setAttribute("data-theme", saved === "light" ? "light" : "dark"); // 默认深空
+      } catch (err) {
+        document.documentElement.setAttribute("data-theme", "dark");        // 隐私模式下读取失败也维持深空
+      }
+    })();
+  </script>
+  <link rel="stylesheet" href="./css/style.css" />
+</head>
+<body>
+
+  <!-- 全局提示条：单机部署 · 数据源：GIPS 2020 Standards for Firms -->
+  <div id="demoBanner" class="demo-banner">
+    单机查询与自查工具 · 数据源：GIPS 2020 《Standards for Firms》 · 后端 <code>127.0.0.1:8011</code>
+  </div>
+
+  <!-- 工作台外壳 -->
+  <div id="shellView" class="shell">
+
+    <!-- 左侧导航（图标轨，hover 显示名称） -->
+    <aside class="sidebar">
+      <div class="brand" id="brandBox" title="GIPS 标准查询与自查工具">
+        <span class="brand-mark">GIPS</span>
+        <span class="brand-name" id="brandTitle">合规审查工作台</span>
+      </div>
+      <nav id="navList" class="nav-list"></nav>
+      <div class="sidebar-footer">
+        <div class="sidebar-user" title="X-Role: reviewer · X-Dept: compliance">
+          <div class="role-chip" id="roleChip">RV</div>
+          <div class="sidebar-user-meta">
+            <div class="sidebar-user-name">reviewer</div>
+            <div class="sidebar-user-dept">compliance</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+
+    <!-- 右侧主区 -->
+    <div class="main">
+      <header class="appbar">
+        <div id="breadcrumb" class="breadcrumb"></div>
+
+        <!-- 跨页上下文条：模块 / 页面 / 当前对象 -->
+        <div class="context" id="ctxBar">
+          <span class="ctx-k">CONTEXT</span>
+          <span class="ctx-path" id="ctxPath"></span>
+          <span class="ctx-chip" id="ctxChip">Standards for Firms</span>
+        </div>
+
+        <div class="context-right">
+          <span id="backendTag" class="version-tag">后端 :8011</span>
+          <span id="clock" class="mkt-clock">--:--:--</span>
+          <span id="backendHealth" class="status-dot"><i class="dot dot-live"></i>连接中</span>
+          <button id="themeToggle" class="topbar-btn" type="button" title="切换深空 / 浅色主题"></button>
+        </div>
+      </header>
+
+      <div id="pagebar" class="pagebar"></div>
+
+      <main id="pageContainer" class="page-container"></main>
+    </div>
+  </div>
+
+  <!-- Toast 容器 -->
+  <div id="toastRoot" class="toast-root"></div>
+
+  <!-- 入口 -->
+  <script type="module" src="./js/main.js"></script>
+</body>
+</html>

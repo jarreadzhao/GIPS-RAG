@@ -1,0 +1,28 @@
+# 模型权重：体积大、可重新获取，不入库
+models/
+
+# 运行时产物：索引快照、日志、临时文件
+var/
+*.log
+
+# 实验产物：重跑评测会大量变动，入库会让提交历史被 diff 噪声淹没
+work/
+
+# 原始 PDF 材料：体量与版权归属都不宜入库
+standard_paper/
+
+# 环境与密钥
+.env
+.env.local
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# 编辑器与工具
+.idea/
+.vscode/
+.screenshots/

@@ -1,0 +1,45 @@
+#!/bin/sh
+# 三道门禁串联，任一不过即禁止提交：
+#   spec_sync  代码改了，规格追认了吗（代码回写 + 变更单追溯节）
+#   spec_gate  规格改了，算不算一次新版本（版本前进 + 开单 + 下游跟版）
+#   spec_link  四份之间对得上吗（上游版本链 + ID 闭合 + 结构）
+# 顺序不能换：sync 报的是根因（代码改了没写规格），gate 报的是后果（版本没升）。
+# 安装位置 .git/hooks/pre-commit；脚本随仓库提供（v1-spec/tools/），换机器不用改路径。
+# 确需跳过：git commit --no-verify，并在 message 里写明理由。
+
+PY=python
+command -v "$PY" >/dev/null 2>&1 || PY=py
+command -v "$PY" >/dev/null 2>&1 || {
+  echo "[spec] 找不到 python，无法执行规格检查，提交被拒。"
+  echo "       修好环境后重试；应急可用 git commit --no-verify 并注明理由。"
+  exit 1
+}
+
+"$PY" v1-spec/tools/spec_sync.py --root v1-spec || {
+  echo ""
+  echo "[spec-sync] 代码改了，但规格没跟着改（或变更单缺追溯节）。"
+  echo "            代码的实际行为与 PRD 不一致时，正确做法是把改动回写进规格："
+  echo "            1) 改 spec/PRD.md 对应章节（必要时加 R 条目）"
+  echo "            2) 按派生链改契约 → 接口 → 验收"
+  echo "            3) 在 changes/CHG-*.md 里写「## 代码变更追溯」三行"
+  echo "            确实无影响（纯重构）→ 规格影响写「无」，并在说明里讲清理由。"
+  echo "            应急跳过：git commit --no-verify（须在 message 写明理由）。"
+  exit 1
+}
+
+"$PY" v1-spec/tools/spec_gate.py --root v1-spec || {
+  echo ""
+  echo "[spec-gate] 规格改动未升版或缺变更单，禁止提交。"
+  echo "            改了 PRD 正文 → 版本 +0.1，下游三份「上游版本」跟到新版本，"
+  echo "            并在 changes/ 下开 CHG-YYYYMMDD-NN.md。"
+  echo "            应急跳过：git commit --no-verify（须在 message 写明理由）。"
+  exit 1
+}
+
+"$PY" v1-spec/tools/spec_link.py --root v1-spec || {
+  echo ""
+  echo "[spec-link] 四件套联检未通过，禁止提交。"
+  echo "            按上面的 FAIL 项改 spec/，或补一张 changes/CHG-*.md。"
+  echo "            应急跳过：git commit --no-verify（须在 message 写明理由）。"
+  exit 1
+}

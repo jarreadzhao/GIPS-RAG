@@ -1,0 +1,117 @@
+# GIPS 索引配置 v1（M0 产物）
+# 运行时以 app/config.py 为准；本文件是版本化快照，供评审与 M1 对齐，
+# 两者不一致时以代码为准，并同步修改本文件。
+version: index-v1
+generated_at: 2026-11-09
+source_of_truth: app/config.py
+
+versions:
+  cleaner: cleaner-v2
+  chunker: chunker-v2
+  embedding_model: bge-m3
+  reranker_model: bge-reranker-v2-m3
+  index_format: 1
+  # 语料当前生效的索引版本（M0 重建后）
+  current_index_version: idx_58bd974484e82424
+
+chunking:
+  strategy_default: provision
+  allowed:
+    - provision
+    - section
+    - paragraph
+    - table_cell
+    - semantic
+  forbidden:
+    - fixed_length
+    - fixed_length_overlap
+    - sliding_window
+  overlap: 0
+  target_chars: 550
+  max_chars: 1100
+  # 尾块合并阈值实际为 max(40, target//8) = 68；
+  # config.chunker_min_chars=60 尚未被 chunker 读取（缺陷 D-4）
+  merge_small_tail_chars: 68
+  page_boundary: strict          # chunk 不跨页
+  # 偏移基准：解析器按阅读顺序重建的页内规范字符流（双栏按栏排序），
+  # 不是 PyMuPDF 的 get_text('text') 原始流
+  offsets: page_char_left_closed_right_open
+  offsets_basis: canonical_page_stream
+
+embedding:
+  provider: FlagEmbedding.BGEM3FlagModel
+  model_path: models/bge-m3
+  device: cuda:0
+  fp16: true
+  batch_size: 8
+  max_length: 512
+  dense:
+    enabled: true
+    dim: 1024
+  sparse:
+    enabled: true
+    output: lexical_weights    # 词权重，写入 Milvus 稀疏向量字段
+  colbert: false
+
+reranking:
+  model_path: models/bge-reranker-v2-m3
+  device: cuda:0
+  fp16: true
+
+index:
+  backend: milvus
+  backend_version: "2.4.6"
+  uri: http://127.0.0.1:19530
+  collection: gips_chunks
+  primary_key: chunk_id
+  chunk_id_format: "sha256(doc_id|version_no|page_no|char_start|char_end)[:32]"
+  dense:
+    field: dense
+    type: FLOAT_VECTOR
+    index: HNSW
+    metric: COSINE
+    params:
+      M: 16
+      efConstruction: 200
+  sparse:
+    field: sparse
+    type: SPARSE_FLOAT_VECTOR
+    index: SPARSE_INVERTED_INDEX
+    metric: IP
+  scalar_index: INVERTED
+  scalar_fields:
+    - doc_id
+    - provision_id
+    - corpus_type
+    - dept
+    - clearance
+    - index_version
+    - acl_scope
+    - pair_id
+    - lang
+  required_scalars:
+    - dept
+    - clearance
+  states:
+    - pending
+    - embedding
+    - indexed
+    - active
+    - failed
+  activation:
+    count_consistency: strict    # sqlite chunk_count 必须等于 Milvus 条数
+    sample_check_size: 20
+  index_version:
+    format: "idx_<sha256(doc_id|version_no|file_hash|cleaner_version|chunker_version|chunker_strategy)[:16]>"
+    binds:
+      - doc_id
+      - version_no
+      - file_hash
+      - cleaner_version
+      - chunker_version
+      - chunker_strategy
+
+quality_gates:
+  min_parse_success: 0.98
+  max_empty_chunk_rate: 0.02
+  max_table_misalign_rate: 0.05  # 当前解析器无表格结构，无法度量（缺陷 D-2）

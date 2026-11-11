@@ -1,0 +1,90 @@
+# 本地基础设施：Milvus standalone + Redis
+# 启动：docker compose up -d
+# 说明：Milvus 需要 etcd 存元数据、S3 兼容对象存储存段文件，这两个不是可选组件。
+#
+# 关于对象存储为什么不用 MinIO：
+#   MinIO 社区版的公开分发已撤下（quay.io/minio/minio 返回 401，
+#   dl.min.io 的 release 归档返回 410，Docker Hub 各 tag 在镜像源上均为 not found），
+#   本机无法取得任何 MinIO 镜像。Milvus 只依赖 S3 协议，不依赖 MinIO 实现，
+#   因此改用 SeaweedFS 的 S3 网关（chrislusf/seaweedfs）作为等价替代，
+#   接口、凭据与 bucket 语义保持一致（accessKey/secretKey 仍按 minioadmin 配置）。
+#
+# 关于数据卷为什么不用 ./var/volumes 绑定挂载：
+#   Docker Desktop 未授权共享 D 盘，绑定挂载会因「user declined directory sharing」
+#   直接失败。改用命名卷后，数据仍持久化，只是不在工作区目录里可见。
+services:
+  etcd:
+    image: quay.io/coreos/etcd:v3.5.5
+    environment:
+      - ETCD_AUTO_COMPACTION_MODE=revision
+      - ETCD_AUTO_COMPACTION_RETENTION=1000
+      - ETCD_QUOTA_BACKEND_BYTES=4294967296
+      - ETCD_SNAPSHOT_COUNT=50000
+    volumes:
+      - etcd-data:/etcd
+    command: etcd -advertise-client-urls=http://127.0.0.1:2379 -listen-client-urls http://0.0.0.0:2379 --data-dir /etcd
+    healthcheck:
+      test: ["CMD", "etcdctl", "endpoint", "health"]
+      interval: 30s
+      timeout: 20s
+      retries: 3
+
+  objectstore:
+    image: seaweedfs:latest
+    # S3 凭据配置在容器内生成：绑定挂载不可用，配置文件不能放在宿主机上
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        printf '%s' '{"identities":[{"name":"gips-admin","credentials":[{"accessKey":"minioadmin","secretKey":"minioadmin"}],"actions":["Admin","Read","Write","List","Tagging"]}]}' > /tmp/s3.json && exec weed server -dir=/data -s3 -s3.port=9000 -s3.config=/tmp/s3.json
+    ports:
+      - "9000:9000"
+    volumes:
+      - objectstore-data:/data
+    healthcheck:
+      # S3 端口对未签名请求返回 403，不能用 HTTP 探活；改探 TCP 端口
+      test: ["CMD", "sh", "-c", "nc -z 127.0.0.1 9000"]
+      interval: 30s
+      timeout: 20s
+      retries: 5
+
+  milvus:
+    image: milvusdb/milvus:v2.4.6
+    command: ["milvus", "run", "standalone"]
+    environment:
+      ETCD_ENDPOINTS: etcd:2379
+      MINIO_ADDRESS: objectstore:9000
+      MINIO_ACCESS_KEY_ID: minioadmin
+      MINIO_SECRET_ACCESS_KEY: minioadmin
+    volumes:
+      - milvus-data:/var/lib/milvus
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    depends_on:
+      - etcd
+      - objectstore
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9091/healthz"]
+      interval: 30s
+      start_period: 90s
+      timeout: 20s
+      retries: 3
+
+  redis:
+    image: redis:7.2-alpine
+    command: ["redis-server", "--appendonly", "yes", "--maxmemory", "512mb", "--maxmemory-policy", "allkeys-lru"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  etcd-data:
+  objectstore-data:
+  milvus-data:
+  redis-data:

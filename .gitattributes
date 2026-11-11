@@ -1,0 +1,38 @@
+# 换行与二进制规则
+#
+# 背景：本机 core.autocrlf=input，提交时 CRLF 归一化为 LF，检出时不转换。
+# 问题出在「能被 shell 直接执行」的文件：CRLF 会让 sh 报 \r: command not found，
+# 表现为钩子静默不执行。这类文件必须强制 LF，其余交给 text=auto。
+
+* text=auto
+
+# 会被 sh 直接执行的文件：必须 LF，否则 Git Bash 下报错
+*.sh            text eol=lf
+pre-commit      text eol=lf
+*.bat           text eol=crlf
+
+# 源码与文档：统一 LF，避免跨机器 diff 全是换行
+*.py            text eol=lf
+*.md            text eol=lf
+*.json          text eol=lf
+*.jsonl         text eol=lf
+*.yaml          text eol=lf
+*.yml           text eol=lf
+*.toml          text eol=lf
+*.sql           text eol=lf
+*.csv           text eol=lf
+
+# 二进制：禁止任何换行或文本合并处理
+*.pdf           binary
+*.png           binary
+*.jpg           binary
+*.jpeg          binary
+*.webp          binary
+*.gguf          binary
+*.bin           binary
+*.safetensors   binary
+*.pt            binary
+*.onnx          binary
+*.sqlite        binary
+*.zip           binary
+*.gz            binary

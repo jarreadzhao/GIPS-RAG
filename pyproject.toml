@@ -1,0 +1,43 @@
+[project]
+name = "gips-review-rag"
+version = "0.1.0"
+description = "GIPS 合规审查 RAG 系统（内部自查工具，单卡 8GB 分时独占）"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn>=0.30",
+    "pydantic>=2.7",
+    "pydantic-settings>=2.4",
+    "pymupdf>=1.24",
+    "pymilvus>=2.4",
+    "redis>=5.0",
+    "python-ulid>=3.0",
+    "python-multipart>=0.0.9",
+    # 本地推理：llama-cpp-python 需带 CUDA 后端的 wheel，安装方式见 scripts/install_llama_cpp.ps1
+    "llama-cpp-python>=0.3.0",
+    "FlagEmbedding>=1.3",
+    "torch>=2.4",
+    "transformers>=4.44",
+]
+
+[project.optional-dependencies]
+# 云端 OCR 适配层依赖；未安装时仅 FakeProvider 可用
+ocr = [
+    "alibabacloud-ocr-api20210707>=3.0",
+    "tencentcloud-sdk-python-ocr>=3.0",
+]
+dev = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23",
+    "httpx>=0.27",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+    "gpu: 需要真实加载模型并占用显存的用例",
+]
+
+[tool.setuptools]
+packages = ["app", "app.api", "app.core", "app.parse", "app.parse.ocr", "app.index", "app.retrieve", "app.reason", "app.ledger", "app.eval"]
