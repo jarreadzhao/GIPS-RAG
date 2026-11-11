@@ -4,6 +4,143 @@
 
 当前版本 `0.1.0-M2`，`GET /healthz` 返回版本号。
 
+## 先读这里：怎么把项目跑起来并调用
+
+顺序是「拿原文 → 起底座 → 装依赖 → 起服务 → 调用」，五步。前四步不做完，第五步一定失败。
+
+### 第 0 步：拿到标准原文
+
+本仓库不附带受版权约束的标准原文，需从官方页面自行获取：
+
+**https://www.gipsstandards.org/standards/gips-standards-for-firms/**
+
+在该页下载两份 PDF，放到仓库根目录下新建的 `standard_paper/`（该目录不入库）：
+
+| 文件 | 用途 | 上传时 `index_mode` |
+|---|---|---|
+| `2020_gips_standards_firms.pdf` | 英文正本，切分后写入向量库 | `full` |
+| `Chinese-Translation-2020-Firms.pdf` | 中文译本，只落 SQLite 供引用对照 | `display_only` |
+
+英文正本是检索与判定的唯一依据；中文译版不参与召回，只在结论里提供对照译文。两份文件的使用条件以官网页面上的许可条款为准。
+
+### 第 1 步：起基础设施
+
+```bash
+docker compose up -d
+docker compose ps
+```
+
+包含 etcd、S3 兼容对象存储（SeaweedFS）、Milvus standalone 与 Redis；首次启动 Milvus 健康检查通过约需 90 秒。数据使用命名卷持久化。
+
+### 第 2 步：装依赖与配置
+
+```bash
+pip install -e ".[dev]"
+cp .env.example .env
+```
+
+`.env.example` 只列键名与默认值，不含任何真实凭据。云 OCR 相关 AK/SK 需自行填写；不启用 OCR 时保持默认即可。
+
+### 第 3 步：启动后端
+
+```bash
+python -m uvicorn app.main:app --host 127.0.0.1 --port 8011
+```
+
+启动顺序：配置校验 → SQLite 建表与触发器 → 回收崩溃遗留的中间态索引 → 组装显存池。模型惰性加载，启动本身不占显存，首个检索请求触发冷加载。
+
+健康检查：
+
+```bash
+curl http://127.0.0.1:8011/healthz
+```
+
+```json
+{"status": "ok", "version": "0.1.0-M2", "llm_backend": "fake", "resident_models": ["embed", "rerank"]}
+```
+
+`resident_models` 是当前常驻显存的槽位，可与 `nvidia-smi` 交叉验证——8 GB 卡上不应同时出现 `generate` 与 `embed/rerank`。
+
+### 第 4 步：调用
+
+两种方式，任选其一。项目没有 CLI，对外只有 HTTP 接口。
+
+**方式 A：浏览器操作台**
+
+```bash
+python -m http.server 8765 --bind 127.0.0.1 --directory frontend
+```
+
+访问 `http://127.0.0.1:8765/`。操作台会自动带上 `X-Role: reviewer`、`X-Dept: compliance` 与 `Idempotency-Key`。
+
+**方式 B：直接调 HTTP 接口**
+
+| 方法 | 路径 | 用途 | 必需请求头 |
+|---|---|---|---|
+| GET | `/healthz` | 存活与版本 | — |
+| POST | `/documents` | 上传 PDF，返回 `202` + `task_id` | — |
+| GET | `/documents/{doc_id}` | 文档与索引状态 | — |
+| POST | `/reviews` | 发起条款审查 | `Idempotency-Key`、`X-Role`、`X-Dept` |
+| GET | `/reviews/{task_id}` | 取审查结果 | `X-Role`、`X-Dept` |
+| GET | `/cot/{finding_id}` | 取该条结论的推理链 | `X-Role`、`X-Dept` |
+| GET | `/provisions/search?q=1.A.4` | 按条款号检索 | `X-Role`、`X-Dept` |
+| POST | `/retrieval/test` | 检索调试 | `X-Role`、`X-Dept` |
+
+上传英文正本（建索引）：
+
+```bash
+curl -X POST http://127.0.0.1:8011/documents \
+  -F "file=@standard_paper/2020_gips_standards_firms.pdf" \
+  -F "doc_id=gips2020_en" -F "version_no=1" \
+  -F "corpus_type=A_spec" -F "doc_type=制度" \
+  -F "dept=compliance" -F "clearance=internal" \
+  -F "effective_from=2020-01-01T00:00:00Z" -F "index_mode=full"
+```
+
+上传中文译本（只落库，不建索引）：
+
+```bash
+curl -X POST http://127.0.0.1:8011/documents \
+  -F "file=@standard_paper/Chinese-Translation-2020-Firms.pdf" \
+  -F "doc_id=gips2020_zh" -F "version_no=1" \
+  -F "corpus_type=A_spec" -F "doc_type=制度" \
+  -F "dept=compliance" -F "clearance=internal" \
+  -F "effective_from=2020-01-01T00:00:00Z" -F "index_mode=display_only"
+```
+
+`corpus_type` 只能是 `A_spec`（外部标准）或 `B_internal`（内部制度）；`clearance` 只能是 `internal` 或 `restricted`；`effective_from` 用 RFC 3339。缺项会一次性列全，不用逐条试错。
+
+发起一次正式审查：
+
+```bash
+curl -X POST http://127.0.0.1:8011/reviews \
+  -H "Content-Type: application/json" \
+  -H "Idempotency-Key: 0f8f1d1e-6a1b-4c47-9d2e-2b7f3c5a1d40" \
+  -H "X-Role: reviewer" -H "X-Dept: compliance" \
+  -d '{"task_type":"formal","scope":["1.A.4"],"text":"该组合是否满足 composite 定义？","answer_lang":"zh"}'
+```
+
+取结果：
+
+```bash
+curl -H "X-Role: reviewer" -H "X-Dept: compliance" \
+  http://127.0.0.1:8011/reviews/<task_id>
+```
+
+`task_type=formal` 要求 `X-Role` 属于 `reviewer` / `librarian` / `approver` / `admin`；`task_type=qa` 无此限制。`Idempotency-Key` 必填，重放同一键不会重复建任务。结论带 `status` 字段，为 `draft` 时表示证据不足、不可签署。
+
+### 第 5 步：接入模型权重（可选）
+
+不接权重也能跑通全链路——`GIPS_LLM_BACKEND` 默认 `fake`，用桩模型返回结构合法的结果。需要真实检索与生成时，把权重放到 `models/` 下：
+
+```
+models/embed/        bge-m3
+models/rerank/       bge-reranker-v2-m3
+models/generate/     qwen3-8b-q4_k_m.gguf
+```
+
+权重文件约 9.5 GB，不入库，需自行从模型发布页下载。`llama-cpp-python` 需要带 CUDA 后端的 wheel，安装方式见 `scripts/install_llama_cpp.ps1`。
+
 ## 它解决什么问题
 
 - **条款级取证**，不是全文问答：先定位到具体条款，再围绕条款取证与判定。
@@ -53,68 +190,15 @@ docs/           运维手册、标注规范与各类评估报告
 reports/        阶段性审查与验收报告
 ```
 
-`models/`、`var/`、`standard_paper/`、`work/` 是本地产物目录，不入库。
+`models/`、`var/`、`standard_paper/`、`work/` 是本地产物目录，不入库，需自行创建。
 
-## 快速开始
+## 已知限制
 
-### 1. 启动基础设施
-
-```bash
-docker compose up -d
-docker compose ps
-```
-
-包含 etcd、S3 兼容对象存储（SeaweedFS）、Milvus standalone 与 Redis；首次启动 Milvus 健康检查通过约需 90 秒。数据使用命名卷持久化。
-
-### 2. 准备配置
-
-```bash
-cp .env.example .env
-```
-
-`.env.example` 只列键名与默认值，不含任何真实凭据。云 OCR 相关 AK/SK 需自行填写；不启用 OCR 时保持默认即可。
-
-### 3. 启动后端
-
-```bash
-python -m uvicorn app.main:app --host 127.0.0.1 --port 8011
-```
-
-启动顺序：配置校验 → SQLite 建表与触发器 → 回收崩溃遗留的中间态索引 → 组装显存池。模型惰性加载，启动本身不占显存，首个检索请求触发冷加载。
-
-### 4. 打开操作台
-
-```bash
-python -m http.server 8765 --bind 127.0.0.1 --directory frontend
-```
-
-浏览器访问 `http://127.0.0.1:8765/`。
-
-### 5. 健康检查
-
-```bash
-curl http://127.0.0.1:8011/healthz
-```
-
-返回示例：
-
-```json
-{"status": "ok", "version": "0.1.0-M2", "llm_backend": "fake", "resident_models": ["embed", "rerank"]}
-```
-
-`resident_models` 是当前常驻显存的槽位，可与 `nvidia-smi` 交叉验证——8 GB 卡上不应同时出现 `generate` 与 `embed/rerank`。
-
-### 6. 接入模型权重（可选）
-
-把权重放到 `models/` 下，未就位时保持 `GIPS_LLM_BACKEND=fake`：
-
-```
-models/embed/        bge-m3
-models/rerank/       bge-reranker-v2-m3
-models/generate/     qwen3-8b-q4_k_m.gguf
-```
-
-`llama-cpp-python` 需要带 CUDA 后端的 wheel，安装方式见 `scripts/install_llama_cpp.ps1`。
+- 仓库只含源代码与规格文档，不含模型权重、向量库数据与标准原文。克隆后必须补齐这三样才能真实检索：模型见第 5 步，向量库由上传 PDF 触发重建，原文见第 0 步。
+- 单卡 8 GB 决定了生成模型规模与 4k 上下文上限，长文档只能分条款取证，不支持整篇长上下文推理。
+- 并发为 1，多任务需排队；不适合作为多人在线服务直接暴露。
+- 云 OCR 需要供应商凭据与零留存条款，未配置时只能走文本层解析。
+- 评测集规模有限，边界条款的判定质量仍需资深审查员抽检。
 
 ## 测试
 
@@ -123,7 +207,7 @@ pip install -e ".[dev]"
 python -m pytest -q
 ```
 
-标了 `gpu` 的用例会真实加载模型并占用显存，未接 GPU 时可跳过。
+标了 `gpu` 的用例会真实加载模型并占用显存，未接 GPU 时可跳过。索引重建后可用 `eval/golden/golden-v1.jsonl` 复跑，比对召回与引用是否与既有基线一致。
 
 ## 规格文档
 
@@ -135,13 +219,6 @@ python v1-spec/tools/prd_lint.py v1-spec/spec/PRD.md   # PRD 单文件结构细�
 ```
 
 阅读顺序见 `v1-spec/README.md`；日常运维见 `docs/运维手册.md`。
-
-## 已知限制
-
-- 单卡 8 GB 决定了生成模型规模与 4k 上下文上限，长文档只能分条款取证，不支持整篇长上下文推理。
-- 并发为 1，多任务需排队；不适合作为多人在线服务直接暴露。
-- 云 OCR 需要供应商凭据与零留存条款，未配置时只能走文本层解析。
-- 评测集规模有限，边界条款的判定质量仍需资深审查员抽检。
 
 ## 许可证
 
